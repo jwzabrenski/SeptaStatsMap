@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>SeptaStats Train Viewer</title>
+    <link rel="stylesheet" href="leaflet/leaflet.css" />
+    <link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
+	<script src="jquery/jquery-1.12.3.min.js"></script>
+    <script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+    <script src="leaflet/leaflet-src.js"></script>
+	<script src="hotline/dist/leaflet.hotline.min.js"></script>
+	<style>
+    .container-fluid {
+      width: 100%
+    }    
+    #mapid {
+      float: left;
+      height: 600px;
+      width: 720px;
+    }    
+    #nav {
+      width: 100%;
+      float: right;
+      text-align: center;
+      margin-right: 15px;
+    }   
+    #menu {
+      height: 500px;
+      width: 100%;
+      float: right;
+      text-align: right;
+      overflow-y: scroll;
+      overflow-x: hidden;
+    }
+	</style>
+  </head>
+  <body>
+  <div class="container-fluid">
+  <div class="row">
+  <div class="col-sm-8"><div id="mapid"></div></div>
+  <div class="col-sm-4"> <div id = "nav"><h4>Trains:</h4><ul id="menu" style="list-style-type:none"></ul></div></div>
+  </div>
+  </div>
+    <script type="text/javascript">
+
+//get list of trains and insert into list
+$.getJSON("http://www.septastats.com/api/current/trains", function(json) {
+  var strAverage = "/history/average";
+  $.each(json.data, function(key, val) {
+    var train = val.trainno.toString();
+    $('#menu').append(
+      $('<li></li>').html("<a onclick='getData(\"" + train + "\");' href='javascript:void(0);'>" + train + "</a> <a onclick='getData(\"" + train + "\"+\"/history/average\");' href='javascript:void(0);'> 7 Day Average</a>")
+    );
+  });
+});
+
+//create map
+var map = L.map('mapid').setView([40.014766, -75.179466], 11);
+
+map.options.minZoom = 10;
+map.options.maxZoom = 15;
+
+//var markersGroup = new L.FeatureGroup();
+var stations = L.layerGroup().addTo(map);
+map.addLayer(stations);
+
+//add tile background layer
+L.tileLayer('http://{s}.mqcdn.com/tiles/1.0.0/map/{z}/{x}/{y}.png', {
+  attribution: '&copy; <a href="http://osm.org/copyright" title="OpenStreetMap" target="_blank">OpenStreetMap</a> contributors | Tiles Courtesy of <a href="http://www.mapquest.com/" title="MapQuest" target="_blank">MapQuest</a> <img src="http://developer.mapquest.com/content/osm/mq_logo.png" width="16" height="16">',
+  subdomains: ['otile1', 'otile2', 'otile3', 'otile4']
+}).addTo(map);
+
+layerControl = L.control.layers().addTo(map);
+
+var lines = new L.FeatureGroup();
+map.addLayer(lines);
+
+//get JSON info for specific train and create hotline and markers
+function getData(trainNo) {
+  $.getJSON('http://www.septastats.com/api/current/train/' + trainNo, function(json) {
+    if (json.data.length < 1) {
+      alert("No information for this train yet.");
+    } else {
+      var items = [];
+      var stops = [];
+      lines.clearLayers();
+      stations.clearLayers();
+
+      //parse lat/long and lateness data
+      $.each(json.data, function(key, val) {
+
+        //check if response is most recent or weekly average
+        if (json.data[0].hasOwnProperty('Average Minutes Late')) {
+          stops.push(val.nextstop);
+          items.push([parseFloat(val.lat), parseFloat(val.lon), Number(val["Average Minutes Late"])]);
+        } else {
+          stops.push(val.nextstop);
+          items.push([parseFloat(val.lat), parseFloat(val.lon), Number(val["Minutes Late"])]);
+        }
+      });
+
+      //hotline display options
+      var options = {
+        min: 0,
+        max: 10,
+        palette: {
+          0.0: '#008800',
+          0.5: '#ffff00',
+          1.0: '#ff0000'
+        },
+        weight: 8,
+        outlineColor: '#000000',
+        outlineWidth: 1
+      };
+
+      //create hotline layer , auto centers and zooms to it
+      var hotlineLayer = L.hotline(items, options);
+      lines.addLayer(hotlineLayer);
+      map.fitBounds(hotlineLayer.getBounds());
+
+      //create marker per station from train data
+
+      var itemsLength = items.length;
+      for (var i = 0; i < itemsLength; i++) {
+        //clean up
+        var lon = items[i][1];
+        var lat = items[i][0];
+        var minsLate = items[i][2];
+        var stop = stops[i].toString();
+        var popupText = getText(minsLate);
+
+        var markerLocation = new L.latLng(lat, lon);
+        var marker = new L.marker(markerLocation);
+
+        marker.bindPopup(stop + ": " + popupText);
+
+        stations.addLayer(marker);
+      }
+
+      //add station layer visibility toggle
+      layerControl.addOverlay(stations, "Stations");
+    }
+  });
+}
+
+//finds appropriate caption for popup
+function getText(number) {
+  if (number == 0) {
+    return "On time.";
+  } else if (number == 1) {
+    return "1 minute late.";
+  } else {
+    return number + " minutes late.";
+  }
+}
+	</script>
+  </body>
+</html>
